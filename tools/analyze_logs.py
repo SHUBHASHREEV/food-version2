@@ -32,28 +32,27 @@ def cal_train_time(log_dicts, args):
 
 
 def plot_curve(log_dicts, args):
-    if args.backend is not None:
-        plt.switch_backend(args.backend)
-    sns.set_style(args.style)
+    if args['backend'] is not None:
+        plt.switch_backend(args['backend'])
     # if legend is None, use {filename}_{key} as legend
-    legend = args.legend
+    legend = args['legend']
     if legend is None:
         legend = []
-        for json_log in args.json_logs:
-            for metric in args.keys:
+        for json_log in args['json_logs']:
+            for metric in args['keys']:
                 legend.append('{}_{}'.format(json_log, metric))
-    assert len(legend) == (len(args.json_logs) * len(args.keys))
-    metrics = args.keys
+    assert len(legend) == (len(args['json_logs']) * len(args['keys']))
+    metrics = args['keys']
 
     num_metrics = len(metrics)
     for i, log_dict in enumerate(log_dicts):
         epochs = list(log_dict.keys())
         for j, metric in enumerate(metrics):
             print('plot curve of {}, metric is {}'.format(
-                args.json_logs[i], metric))
+                args['json_logs'][i], metric))
             if metric not in log_dict[epochs[0]]:
                 raise KeyError('{} does not contain metric {}'.format(
-                    args.json_logs[i], metric))
+                    args['json_logs'][i], metric))
 
             if 'mAP' in metric:
                 xs = np.arange(1, max(epochs) + 1)
@@ -81,13 +80,13 @@ def plot_curve(log_dicts, args):
                 plt.plot(
                     xs, ys, label=legend[i * num_metrics + j], linewidth=0.5)
             plt.legend()
-        if args.title is not None:
-            plt.title(args.title)
-    if args.out is None:
+        if args['title'] is not None:
+            plt.title(args['title'])
+    if args['out'] is None:
         plt.show()
     else:
-        print('save curve to: {}'.format(args.out))
-        plt.savefig(args.out)
+        print('save curve to: {}'.format(args['out']))
+        plt.savefig(args['out'])
         plt.cla()
 
 
