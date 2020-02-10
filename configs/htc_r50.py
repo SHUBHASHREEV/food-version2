@@ -181,7 +181,7 @@ test_cfg = dict(
     keep_all_stages=False)
 # dataset settings
 dataset_type = 'CocoDataset'
-data_root = '/ssd_scratch/cvit/mmdetection/data/'
+data_root = '/ssd_scratch/cvit/nikhil/food-version2/data/'
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 albu_train_transforms = [
@@ -312,6 +312,6 @@ total_epochs = 30
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
 work_dir = './work_dirs/htc_r50_fpn'
-load_from = '/ssd_scratch/cvit/mmdetection/htc_r50_fpn_20e_20190408-c03b7015.pth' 
+load_from = '/ssd_scratch/cvit/nikhil/food-version2/htc_r50_fpn_20e_20190408-c03b7015.pth' 
 resume_from = None
 workflow = [('train', 1)]
