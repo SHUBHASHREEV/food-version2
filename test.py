@@ -16,10 +16,16 @@ from mmdet.datasets import build_dataloader, build_dataset
 from mmdet.models import build_detector
 import glob
 import json
+
 test_images_path = os.getenv("AICROWD_TEST_IMAGES_PATH", False)
 predictions_output_path = os.getenv("AICROWD_PREDICTIONS_OUTPUT_PATH", False)
 print(predictions_output_path)
+
+
+
 annotations = {'categories': [], 'info': {}, 'images': []}
+
+
 for item in glob.glob(test_images_path+'/*.jpg'):
     image_dict = dict()
     
@@ -411,7 +417,7 @@ def single_gpu_test(model, data_loader, show=False):
         with torch.no_grad():
             result = model(return_loss=False, rescale=not show, **data)
         results.append(result)
-
+        print("one image done")
         if show:
             model.module.show_result(data, result)
 
@@ -421,25 +427,7 @@ def single_gpu_test(model, data_loader, show=False):
     return results
 
 
-def multi_gpu_test(model, data_loader, tmpdir=None, gpu_collect=False):
-    """Test model with multiple gpus.
-
-    This method tests model with multiple gpus and collects the results
-    under two different modes: gpu and cpu modes. By setting 'gpu_collect=True'
-    it encodes results to gpu tensors and use gpu communication for results
-    collection. On cpu mode it saves the results on different gpus to 'tmpdir'
-    and collects them by the rank 0 worker.
-
-    Args:
-        model (nn.Module): Model to be tested.
-        data_loader (nn.Dataloader): Pytorch data loader.
-        tmpdir (str): Path of directory to save the temporary results from
-            different gpus under cpu mode.
-        gpu_collect (bool): Option to use either gpu or cpu to collect results.
-
-    Returns:
-        list: The prediction results.
-    """
+def multi_gpu_test(model, data_loader, tmpdir=None):
     model.eval()
     results = []
     dataset = data_loader.dataset
@@ -457,14 +445,12 @@ def multi_gpu_test(model, data_loader, tmpdir=None, gpu_collect=False):
                 prog_bar.update()
 
     # collect results from all ranks
-    if gpu_collect:
-        results = collect_results_gpu(results, len(dataset))
-    else:
-        results = collect_results_cpu(results, len(dataset), tmpdir)
+    results = collect_results(results, len(dataset), tmpdir)
+
     return results
 
 
-def collect_results_cpu(result_part, size, tmpdir=None):
+def collect_results(result_part, size, tmpdir=None):
     rank, world_size = get_dist_info()
     # create a tmp dir if it is not specified
     if tmpdir is None:
@@ -506,39 +492,6 @@ def collect_results_cpu(result_part, size, tmpdir=None):
         return ordered_results
 
 
-def collect_results_gpu(result_part, size):
-    rank, world_size = get_dist_info()
-    # dump result part to tensor with pickle
-    part_tensor = torch.tensor(
-        bytearray(pickle.dumps(result_part)), dtype=torch.uint8, device='cuda')
-    # gather all result part tensor shape
-    shape_tensor = torch.tensor(part_tensor.shape, device='cuda')
-    shape_list = [shape_tensor.clone() for _ in range(world_size)]
-    dist.all_gather(shape_list, shape_tensor)
-    # padding result part tensor to max length
-    shape_max = torch.tensor(shape_list).max()
-    part_send = torch.zeros(shape_max, dtype=torch.uint8, device='cuda')
-    part_send[:shape_tensor[0]] = part_tensor
-    part_recv_list = [
-        part_tensor.new_zeros(shape_max) for _ in range(world_size)
-    ]
-    # gather all result part
-    dist.all_gather(part_recv_list, part_send)
-
-    if rank == 0:
-        part_list = []
-        for recv, shape in zip(part_recv_list, shape_list):
-            part_list.append(
-                pickle.loads(recv[:shape[0]].cpu().numpy().tobytes()))
-        # sort the results
-        ordered_results = []
-        for res in zip(*part_list):
-            ordered_results.extend(list(res))
-        # the dataloader may pad some samples
-        ordered_results = ordered_results[:size]
-        return ordered_results
-
-
 def parse_args():
     parser = argparse.ArgumentParser(description='MMDet test detector')
     parser.add_argument('config', help='test config file path')
@@ -555,10 +508,6 @@ def parse_args():
         choices=['proposal', 'proposal_fast', 'bbox', 'segm', 'keypoints'],
         help='eval types')
     parser.add_argument('--show', action='store_true', help='show results')
-    parser.add_argument(
-        '--gpu_collect',
-        action='store_true',
-        help='whether to use gpu to collect results')
     parser.add_argument('--tmpdir', help='tmp dir for writing some results')
     parser.add_argument(
         '--launcher',
@@ -573,6 +522,7 @@ def parse_args():
 
 
 def main():
+    print("I am here")
     args = parse_args()
 
     assert args.out or args.show or args.json_out, \
@@ -593,6 +543,7 @@ def main():
     cfg.data.test.test_mode = True
     cfg.data.test.ann_file = 'test.json'
     cfg.data.test.img_prefix = test_images_path
+
     # init distributed env first, since logger depends on the dist info.
     if args.launcher == 'none':
         distributed = False
@@ -624,8 +575,7 @@ def main():
         outputs = single_gpu_test(model, data_loader, args.show)
     else:
         model = MMDistributedDataParallel(model.cuda())
-        outputs = multi_gpu_test(model, data_loader, args.tmpdir,
-                                 args.gpu_collect)
+        outputs = multi_gpu_test(model, data_loader, args.tmpdir)
 
     rank, _ = get_dist_info()
     if args.out and rank == 0:
@@ -649,17 +599,23 @@ def main():
                         result_files = results2json(dataset, outputs_,
                                                     result_file)
                         coco_eval(result_files, eval_types, dataset.coco)
-
-    # Save predictions in the COCO json format
-    if args.json_out and rank == 0:
+    print(args.json_out, rank)
+    if outputs and args.json_out and rank == 0:
+        print("inside json_out")
+        print(outputs)
         if not isinstance(outputs[0], dict):
+            print("inside is instance")
             response = results2json(dataset, outputs, args.json_out)
         else:
+            print("inside the else")
             for name in outputs[0]:
+                print("inside the output folder")
                 outputs_ = [out[name] for out in outputs]
                 result_file = args.json_out + '.{}'.format(name)
                 response = results2json(dataset, outputs_, result_file)
+        print(response, response['segm'], args.json_out)
         shutil.move(response['segm'], predictions_output_path)
 
 if __name__ == '__main__':
     main()
+
